@@ -3,53 +3,60 @@ workflows:
     name: KMSTrack Manager iOS
     environment:
       groups:
-        # Ajoutez vos variables sensibles ici (ex: certificats)
-        - app_store_credentials # Optionnel pour la publication
+        - app_store_credentials  # Groupe pour les variables de signature
       vars:
-        BUNDLE_ID: "com.example.traccar.manager" # Remplacez par votre Bundle ID
+        BUNDLE_ID: "com.example.traccar.manager"  # À remplacer par votre vrai Bundle ID
         XCODE_WORKSPACE: "Runner.xcworkspace"
         XCODE_SCHEME: "Runner"
-        FLUTTER_VERSION: "3.19.5" # Version de Flutter requise
+        FLUTTER_VERSION: "3.19.5"  # Version Flutter
+        TEAM_ID: "$TEAM_ID"  # À définir dans les variables d'environnement
+
     scripts:
-      # Installation Flutter et dépendances
-      - name: Set up Flutter
+      # Étape 1: Configuration Flutter
+      - name: Set up Flutter environment
         script: |
           flutter doctor -v
           flutter pub get
 
-      # Résolution des problèmes iOS/Pods
-      - name: Install CocoaPods
+      # Étape 2: Configuration iOS
+      - name: iOS dependencies setup
         script: |
           sudo gem install cocoapods
           pod setup
-
-      - name: Install Pods with Retry
-        script: |
           cd ios
           pod install --repo-update || (rm -rf Pods Podfile.lock && pod install --repo-update)
 
-      # Build iOS
-      - name: Build IPA
+      # Étape 3: Build IPA
+      - name: Build iOS application
         script: |
           flutter build ipa --release --no-codesign
           cd ios
           xcodebuild -workspace "$XCODE_WORKSPACE" -scheme "$XCODE_SCHEME" -archivePath Runner.xcarchive archive
 
-      # Optionnel : Signature automatique (si certificats disponibles)
-      - name: Sign IPA (if credentials)
+      # Étape 4: Signature conditionnelle
+      - name: Sign and export IPA
         script: |
-          xcodebuild -exportArchive -archivePath Runner.xcarchive -exportOptionsPlist ExportOptions.plist -exportPath .
-        condition: app_store_credentials
+          if [ "$APP_STORE_CREDENTIALS" == "true" ]; then
+            cd ios
+            xcodebuild -exportArchive \
+              -archivePath Runner.xcarchive \
+              -exportOptionsPlist ExportOptions.plist \
+              -exportPath .
+          else
+            echo "Skipping signing, no credentials provided"
+          fi
+        env_vars:
+          - APP_STORE_CREDENTIALS: $APP_STORE_CREDENTIALS  # Doit être défini dans les variables de groupe
 
     artifacts:
       - build/ios/ipa/*.ipa
-      - Runner.xcarchive
+      - ios/Runner.xcarchive
 
     publishing:
-      app_store_connect: # Nécessite un compte développeur Apple
-        api_key: $APP_STORE_CONNECT_PRIVATE_KEY
-        key_id: $APP_STORE_CONNECT_KEY_ID
-        issuer_id: $APP_STORE_CONNECT_ISSUER_ID
       email:
         recipients:
           - mbassijoel7@gmail.com
+      app_store_connect:  # Seulement si des credentials sont fournis
+        api_key: $APP_STORE_CONNECT_PRIVATE_KEY
+        key_id: $APP_STORE_CONNECT_KEY_ID
+        issuer_id: $APP_STORE_CONNECT_ISSUER_ID
