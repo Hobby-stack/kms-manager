@@ -1,59 +1,64 @@
 workflows:
   traccar-ios-swift:
-    name: Traccar Manager (Swift)
+    name: KMSTrack Manager (Swift)
     environment:
-      vars:
-        XCODE_PROJECT: "Traccar.xcodeproj"  # Remplacez par votre nom de projet
-        XCODE_SCHEME: "Traccar"             # Votre scheme principal
-        DESTINATION: "generic/platform=iOS"  # Pour build générique
+      xcode: latest
+      cocoapods: default
     scripts:
-      # Étape 1: Installation des dépendances
-      - name: Install dependencies
+      # Étape 1: Vérification de la structure du projet
+      - name: Verify project structure
         script: |
-          brew install cocoapods
-          pod setup
+          echo "Structure du répertoire :"
+          ls -la
+          if [ ! -d "ios" ]; then
+            echo "ERREUR : Le dossier 'ios' est introuvable"
+            echo "Votre projet doit suivre la structure standard Flutter"
+            exit 1
+          fi
 
-      # Étape 2: Configuration du projet Swift
-      - name: Configure Swift project
+      # Étape 2: Initialisation Pod si nécessaire
+      - name: Initialize Podfile if missing
         script: |
           cd ios
+          if [ ! -f "Podfile" ]; then
+            echo "Création d'un nouveau Podfile..."
+            pod init
+            # Configuration minimale Podfile
+            cat <<EOF > Podfile
+            platform :ios, '12.0'
+            use_frameworks!
+            target 'Runner' do
+              # Ajoutez vos pods ici
+            end
+            EOF
+          fi
           pod install
-          agvtool what-version -terse > /tmp/build_number.txt
 
-      # Étape 3: Build non signé (Xcode)
-      - name: Build unsigned .app
+      # Étape 3: Configuration version build
+      - name: Set build version
         script: |
-          xcodebuild \
-            -workspace "$XCODE_PROJECT/../$XCODE_PROJECT" \
-            -scheme "$XCODE_SCHEME" \
-            -destination "$DESTINATION" \
+          cd ios
+          agvtool new-version -all $(date +%Y%m%d.%H%M)
+          BUILD_NUMBER=$(agvtool what-version -terse)
+          echo "Build number: $BUILD_NUMBER"
+          echo "BUILD_NUMBER=$BUILD_NUMBER" >> $CM_ENV
+
+      # Étape 4: Build Xcode
+      - name: Build Xcode project
+        script: |
+          xcodebuild clean -workspace ios/Runner.xcworkspace -scheme Runner
+          xcodebuild archive \
+            -workspace ios/Runner.xcworkspace \
+            -scheme Runner \
+            -archivePath build/Runner.xcarchive \
             CODE_SIGN_IDENTITY="" \
-            CODE_SIGNING_REQUIRED=NO \
-            clean build
-
-      # Étape 4: Création d'un .zip installable
-      - name: Package artifact
-        script: |
-          mkdir -p build/ios
-          cd build/ios
-          xcrun xcodebuild -exportArchive \
-            -archivePath ../Build/Products/Release-iphoneos/$XCODE_SCHEME.xcarchive \
-            -exportPath . \
-            -exportOptionsPlist ../../exportOptions.plist
-          zip -r Traccar_Manager_Unsigned.zip .
+            CODE_SIGNING_REQUIRED=NO
 
     artifacts:
-      - build/ios/Traccar_Manager_Unsigned.zip
-      - build/ios/*.ipa
+      - build/Runner.xcarchive
+      - ios/Podfile.lock
 
     publishing:
       email:
         recipients:
           - mbassijoel7@gmail.com
-      scripts:
-        - name: Installation instructions
-          script: |
-            echo "Pour installer sur iPhone :"
-            echo "1. Téléchargez AltStore (altstore.io)"
-            echo "2. Transférez le .zip via Finder"
-            echo "3. Installez via AltStore (valable 7 jours)"
