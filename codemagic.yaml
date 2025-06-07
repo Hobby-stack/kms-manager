@@ -2,61 +2,53 @@ workflows:
   traccar-ios:
     name: KMSTrack Manager iOS
     environment:
-      groups:
-        - app_store_credentials  # Groupe pour les variables de signature
       vars:
-        BUNDLE_ID: "com.example.traccar.manager"  # À remplacer par votre vrai Bundle ID
         XCODE_WORKSPACE: "Runner.xcworkspace"
         XCODE_SCHEME: "Runner"
         FLUTTER_VERSION: "3.19.5"  # Version Flutter
-        TEAM_ID: "$TEAM_ID"  # À définir dans les variables d'environnement
 
     scripts:
-      # Étape 1: Configuration Flutter
+      # Étape 1: Setup Flutter
       - name: Set up Flutter environment
         script: |
           flutter doctor -v
+          flutter clean
           flutter pub get
 
-      # Étape 2: Configuration iOS
-      - name: iOS dependencies setup
+      # Étape 2: Configuration iOS sans signature
+      - name: iOS setup without signing
         script: |
           sudo gem install cocoapods
-          pod setup
           cd ios
           pod install --repo-update || (rm -rf Pods Podfile.lock && pod install --repo-update)
 
-      # Étape 3: Build IPA
-      - name: Build iOS application
+      # Étape 3: Build IPA non signé
+      - name: Build unsigned IPA
         script: |
           flutter build ipa --release --no-codesign
           cd ios
-          xcodebuild -workspace "$XCODE_WORKSPACE" -scheme "$XCODE_SCHEME" -archivePath Runner.xcarchive archive
+          xcodebuild -workspace "$XCODE_WORKSPACE" \
+                    -scheme "$XCODE_SCHEME" \
+                    -configuration Release \
+                    CODE_SIGN_IDENTITY="" \
+                    CODE_SIGNING_REQUIRED=NO \
+                    CODE_SIGNING_ALLOWED=NO
 
-      # Étape 4: Signature conditionnelle
-      - name: Sign and export IPA
+      # Étape 4: Préparation de l'artefact
+      - name: Prepare artifact
         script: |
-          if [ "$APP_STORE_CREDENTIALS" == "true" ]; then
-            cd ios
-            xcodebuild -exportArchive \
-              -archivePath Runner.xcarchive \
-              -exportOptionsPlist ExportOptions.plist \
-              -exportPath .
-          else
-            echo "Skipping signing, no credentials provided"
-          fi
-        env_vars:
-          - APP_STORE_CREDENTIALS: $APP_STORE_CREDENTIALS  # Doit être défini dans les variables de groupe
+          mkdir -p build/ios/unsigned
+          cp -r build/ios/ipa/*.ipa build/ios/unsigned/
+          zip -r build/ios/unsigned_app.zip build/ios/unsigned
 
     artifacts:
-      - build/ios/ipa/*.ipa
-      - ios/Runner.xcarchive
+      - build/ios/unsigned_app.zip  # Contient l'IPA non signé
+      - build/ios/ipa/*.ipa         # Fichier IPA brut
 
     publishing:
       email:
         recipients:
           - mbassijoel7@gmail.com
-      app_store_connect:  # Seulement si des credentials sont fournis
-        api_key: $APP_STORE_CONNECT_PRIVATE_KEY
-        key_id: $APP_STORE_CONNECT_KEY_ID
-        issuer_id: $APP_STORE_CONNECT_ISSUER_ID
+      scripts:
+        - name: Notify completion
+          script: echo "Build iOS non signé terminé. Téléchargez le fichier .zip depuis les artefacts."
