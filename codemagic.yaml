@@ -1,54 +1,59 @@
 workflows:
-  traccar-ios:
-    name: KMSTrack Manager iOS
+  traccar-ios-swift:
+    name: Traccar Manager (Swift)
     environment:
       vars:
-        XCODE_WORKSPACE: "Runner.xcworkspace"
-        XCODE_SCHEME: "Runner"
-        FLUTTER_VERSION: "3.19.5"  # Version Flutter
-
+        XCODE_PROJECT: "Traccar.xcodeproj"  # Remplacez par votre nom de projet
+        XCODE_SCHEME: "Traccar"             # Votre scheme principal
+        DESTINATION: "generic/platform=iOS"  # Pour build générique
     scripts:
-      # Étape 1: Setup Flutter
-      - name: Set up Flutter environment
+      # Étape 1: Installation des dépendances
+      - name: Install dependencies
         script: |
-          flutter doctor -v
-          flutter clean
-          flutter pub get
+          brew install cocoapods
+          pod setup
 
-      # Étape 2: Configuration iOS sans signature
-      - name: iOS setup without signing
+      # Étape 2: Configuration du projet Swift
+      - name: Configure Swift project
         script: |
-          sudo gem install cocoapods
           cd ios
-          pod install --repo-update || (rm -rf Pods Podfile.lock && pod install --repo-update)
+          pod install
+          agvtool what-version -terse > /tmp/build_number.txt
 
-      # Étape 3: Build IPA non signé
-      - name: Build unsigned IPA
+      # Étape 3: Build non signé (Xcode)
+      - name: Build unsigned .app
         script: |
-          flutter build ipa --release --no-codesign
-          cd ios
-          xcodebuild -workspace "$XCODE_WORKSPACE" \
-                    -scheme "$XCODE_SCHEME" \
-                    -configuration Release \
-                    CODE_SIGN_IDENTITY="" \
-                    CODE_SIGNING_REQUIRED=NO \
-                    CODE_SIGNING_ALLOWED=NO
+          xcodebuild \
+            -workspace "$XCODE_PROJECT/../$XCODE_PROJECT" \
+            -scheme "$XCODE_SCHEME" \
+            -destination "$DESTINATION" \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            clean build
 
-      # Étape 4: Préparation de l'artefact
-      - name: Prepare artifact
+      # Étape 4: Création d'un .zip installable
+      - name: Package artifact
         script: |
-          mkdir -p build/ios/unsigned
-          cp -r build/ios/ipa/*.ipa build/ios/unsigned/
-          zip -r build/ios/unsigned_app.zip build/ios/unsigned
+          mkdir -p build/ios
+          cd build/ios
+          xcrun xcodebuild -exportArchive \
+            -archivePath ../Build/Products/Release-iphoneos/$XCODE_SCHEME.xcarchive \
+            -exportPath . \
+            -exportOptionsPlist ../../exportOptions.plist
+          zip -r Traccar_Manager_Unsigned.zip .
 
     artifacts:
-      - build/ios/unsigned_app.zip  # Contient l'IPA non signé
-      - build/ios/ipa/*.ipa         # Fichier IPA brut
+      - build/ios/Traccar_Manager_Unsigned.zip
+      - build/ios/*.ipa
 
     publishing:
       email:
         recipients:
           - mbassijoel7@gmail.com
       scripts:
-        - name: Notify completion
-          script: echo "Build iOS non signé terminé. Téléchargez le fichier .zip depuis les artefacts."
+        - name: Installation instructions
+          script: |
+            echo "Pour installer sur iPhone :"
+            echo "1. Téléchargez AltStore (altstore.io)"
+            echo "2. Transférez le .zip via Finder"
+            echo "3. Installez via AltStore (valable 7 jours)"
